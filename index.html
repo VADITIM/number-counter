@@ -28,10 +28,11 @@
   .cell.flash { animation:flash .9s; }
   @keyframes flash { 0%,60% { outline:3px solid #fff; transform:scale(1.15); } 100% { outline:3px solid transparent; transform:none; } }
   #random { width:100%; font-size:18px; padding:14px; }
-  #pop { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; opacity:0; }
-  #pop span { background:var(--on); color:#052e16; font-size:22vmin; font-weight:800; padding:2vmin 5vmin; border-radius:24px; box-shadow:0 10px 40px #000a; }
-  #pop.show { animation:pop 1.6s; }
-  @keyframes pop { 0% { opacity:0; transform:scale(.5); } 15% { opacity:1; transform:scale(1.1); } 25%,75% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(.9); } }
+  #pop { position:fixed; inset:0; display:none; align-items:flex-start; justify-content:center; padding-top:22vh; z-index:5; }
+  #pop.show { display:flex; }
+  #pop span { background:var(--on); color:#052e16; font-size:22vmin; font-weight:800; padding:2vmin 5vmin; border-radius:24px; box-shadow:0 10px 40px #000a; animation:pop .25s; }
+  @keyframes pop { from { opacity:0; transform:scale(.6); } to { opacity:1; transform:scale(1); } }
+  footer { position:relative; z-index:10; }
   .empty { grid-column:1/-1; text-align:center; color:var(--muted); padding:30px; }
 </style>
 </head>
@@ -113,12 +114,13 @@ function reveal(n) {
   const idx = list.indexOf(n);
   while (shown <= idx) renderMore();
   const el = grid.querySelector(`[data-n="${n}"]`);
-  if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+  if (el) { el.scrollIntoView({ block: 'center', behavior: 'auto' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
 }
 function popup(n) {
   const p = $('pop'); p.firstElementChild.textContent = pad(n);
   p.classList.remove('show'); void p.offsetWidth; p.classList.add('show');
 }
+$('pop').addEventListener('click', () => $('pop').classList.remove('show'));
 
 $('form').addEventListener('submit', e => {
   e.preventDefault();
