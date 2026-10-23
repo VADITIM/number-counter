@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Number Counter</title>
+<style>
+  :root { --bg:#111827; --panel:#1f2937; --cell:#273449; --on:#22c55e; --text:#f3f4f6; --muted:#9ca3af; --accent:#6366f1; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--text); font:16px system-ui,sans-serif; display:flex; flex-direction:column; }
+  header,footer { background:var(--panel); padding:10px 12px; flex:none; }
+  header { padding-top:calc(10px + env(safe-area-inset-top)); display:flex; flex-direction:column; gap:8px; }
+  footer { padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
+  .row { display:flex; gap:8px; }
+  input { flex:1; min-width:0; font-size:18px; padding:10px 12px; border-radius:10px; border:2px solid transparent; background:var(--bg); color:var(--text); }
+  input:focus { outline:none; border-color:var(--accent); }
+  input.err { border-color:#ef4444; }
+  button { font:inherit; border:0; border-radius:10px; color:#fff; background:var(--accent); padding:10px 16px; cursor:pointer; }
+  .filters button { flex:1; background:var(--bg); color:var(--muted); padding:8px; }
+  .filters button.active { background:var(--accent); color:#fff; }
+  #stats { color:var(--muted); font-size:13px; text-align:center; }
+  main { flex:1; overflow-y:auto; padding:8px; -webkit-overflow-scrolling:touch; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:6px; }
+  .cell { background:var(--cell); border-radius:8px; padding:12px 0; text-align:center; font-variant-numeric:tabular-nums; cursor:pointer; user-select:none; }
+  .cell.on { background:var(--on); color:#052e16; font-weight:700; }
+  .cell.flash { animation:flash .9s; }
+  @keyframes flash { 0%,60% { outline:3px solid #fff; transform:scale(1.15); } 100% { outline:3px solid transparent; transform:none; } }
+  #random { width:100%; font-size:18px; padding:14px; }
+  #pop { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; opacity:0; }
+  #pop span { background:var(--on); color:#052e16; font-size:22vmin; font-weight:800; padding:2vmin 5vmin; border-radius:24px; box-shadow:0 10px 40px #000a; }
+  #pop.show { animation:pop 1.6s; }
+  @keyframes pop { 0% { opacity:0; transform:scale(.5); } 15% { opacity:1; transform:scale(1.1); } 25%,75% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(.9); } }
+  .empty { grid-column:1/-1; text-align:center; color:var(--muted); padding:30px; }
+</style>
+</head>
+<body>
+<header>
+  <form class="row" id="form" autocomplete="off">
+    <input id="num" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Type a number 0–9999">
+    <button type="submit">Check</button>
+  </form>
+  <div class="row filters" id="filters">
+    <button data-f="all" class="active">All</button>
+    <button data-f="checked">Checked</button>
+    <button data-f="unchecked">Unchecked</button>
+  </div>
+  <div id="stats"></div>
+</header>
+<main id="main"><div id="grid"></div></main>
+<footer><button id="random">🎲 Random unchecked number</button></footer>
+<div id="pop"><span></span></div>
+
+<script>
+const MAX = 10000, KEY = 'number-counter-v1', CHUNK = 400;
+let checked = new Set(), filter = 'all', list = [], shown = 0;
+try { checked = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...checked])); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const grid = $('grid'), main = $('main'), input = $('num');
+const pad = n => String(n).padStart(4, '0');
+
+function buildList() {
+  list = [];
+  for (let i = 0; i < MAX; i++) {
+    const c = checked.has(i);
+    if (filter === 'all' || (filter === 'checked') === c) list.push(i);
+  }
+}
+function cellHTML(n) { return `<div class="cell${checked.has(n) ? ' on' : ''}" data-n="${n}">${pad(n)}</div>`; }
+function renderMore() {
+  const end = Math.min(shown + CHUNK, list.length);
+  let html = '';
+  for (let i = shown; i < end; i++) html += cellHTML(list[i]);
+  grid.insertAdjacentHTML('beforeend', html);
+  shown = end;
+}
+function render() {
+  buildList();
+  grid.innerHTML = ''; shown = 0; main.scrollTop = 0;
+  if (!list.length) grid.innerHTML = '<div class="empty">Nothing here</div>';
+  else renderMore();
+  stats();
+}
+function stats() {
+  $('stats').textContent = `${checked.size} checked · ${MAX - checked.size} left of ${MAX}`;
+}
+main.addEventListener('scroll', () => {
+  if (shown < list.length && main.scrollTop + main.clientHeight > main.scrollHeight - 600) renderMore();
+});
+
+function setChecked(n, on) {
+  on ? checked.add(n) : checked.delete(n);
+  save(); stats();
+  const el = grid.querySelector(`[data-n="${n}"]`);
+  if (el) {
+    // In a filtered view the cell no longer belongs; remove it.
+    if (filter !== 'all') el.remove(); else el.classList.toggle('on', on);
+  }
+}
+grid.addEventListener('click', e => {
+  const el = e.target.closest('.cell'); if (!el) return;
+  const n = +el.dataset.n;
+  setChecked(n, !checked.has(n));
+});
+
+function reveal(n) {
+  // Make sure the cell is rendered, then scroll to and flash it.
+  if (filter === 'unchecked') return;
+  if (!list.includes(n)) { buildList(); }
+  const idx = list.indexOf(n);
+  while (shown <= idx) renderMore();
+  const el = grid.querySelector(`[data-n="${n}"]`);
+  if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+}
+function popup(n) {
+  const p = $('pop'); p.firstElementChild.textContent = pad(n);
+  p.classList.remove('show'); void p.offsetWidth; p.classList.add('show');
+}
+
+$('form').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = input.value.trim();
+  const n = /^\d{1,4}$/.test(v) ? +v : -1;
+  if (n < 0 || n >= MAX) { input.classList.add('err'); setTimeout(() => input.classList.remove('err'), 600); return; }
+  if (filter === 'unchecked' ? false : !checked.has(n) || true) {
+    const was = checked.has(n);
+    if (!was) setChecked(n, true);
+    if (filter !== 'unchecked') {
+      if (filter === 'checked' && !was) { buildList(); const i = list.indexOf(n); if (i >= 0 && i < shown) { /* insert in order */ render(); } }
+      reveal(n);
+    }
+  }
+  input.value = '';
+});
+input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, ''); });
+
+$('random').addEventListener('click', () => {
+  if (checked.size >= MAX) { alert('All numbers checked!'); return; }
+  let n;
+  const left = MAX - checked.size;
+  if (left > MAX / 20) { do n = Math.floor(Math.random() * MAX); while (checked.has(n)); }
+  else { const free = []; for (let i = 0; i < MAX; i++) if (!checked.has(i)) free.push(i); n = free[Math.floor(Math.random() * free.length)]; }
+  checked.add(n); save();
+  if (filter === 'unchecked') { grid.querySelector(`[data-n="${n}"]`)?.remove(); stats(); }
+  else { render(); reveal(n); }
+  popup(n);
+});
+
+$('filters').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  filter = b.dataset.f;
+  document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('active', x === b));
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
