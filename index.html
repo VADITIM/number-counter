@@ -33,11 +33,27 @@
   #pop span { background:var(--on); color:#052e16; font-size:22vmin; font-weight:800; padding:2vmin 5vmin; border-radius:24px; box-shadow:0 10px 40px #000a; animation:pop .25s; }
   @keyframes pop { from { opacity:0; transform:scale(.6); } to { opacity:1; transform:scale(1); } }
   footer { position:relative; z-index:10; }
+  .top { display:flex; justify-content:flex-end; gap:8px; }
+  .top button { background:var(--bg); padding:6px 12px; font-size:15px; }
+  #hist { position:fixed; inset:0; background:#000a; display:none; align-items:center; justify-content:center; z-index:20; padding:16px; }
+  #hist.show { display:flex; }
+  #histbox { background:var(--panel); border-radius:14px; width:min(420px,100%); max-height:80vh; display:flex; flex-direction:column; }
+  #histbox h2 { margin:0; padding:14px 16px; font-size:17px; display:flex; justify-content:space-between; align-items:center; }
+  #histbox h2 button { background:var(--bg); padding:4px 10px; }
+  #histlist { margin:0; padding:0 16px 14px; overflow-y:auto; list-style:none; }
+  #histlist li { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid var(--cell); font-variant-numeric:tabular-nums; }
+  #histlist li span:first-child { color:var(--muted); }
   .empty { grid-column:1/-1; text-align:center; color:var(--muted); padding:30px; }
 </style>
 </head>
 <body>
 <header>
+  <div class="top">
+    <button id="import" title="Import saved data">⬆ Import</button>
+    <button id="download" title="Download saved data">⬇ Download</button>
+    <button id="histbtn" title="History of random numbers">🕘 History</button>
+    <input type="file" id="file" accept="application/json,.json" hidden>
+  </div>
   <form class="row" id="form" autocomplete="off">
     <input id="num" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Type a number 0–9999">
     <button type="submit">Check</button>
@@ -51,12 +67,18 @@
 </header>
 <main id="main"><div id="grid"></div></main>
 <footer><button id="random">🎲 Random unchecked number</button></footer>
+<div id="hist"><div id="histbox"><h2><span>Random history</span><button id="histclose">✕</button></h2><ol id="histlist"></ol></div></div>
 <div id="pop"><span></span></div>
 
 <script>
-const MAX = 10000, KEY = 'number-counter-v1', CHUNK = 400;
-let checked = new Set(), filter = 'all', list = [], shown = 0;
-try { checked = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) {}
+const MAX = 10000, KEY = 'number-counter-v1', HKEY = 'number-counter-history-v1', CHUNK = 400;
+let history = [], checked = new Set(), filter = 'all', list = [], shown = 0;
+function load() {
+  try { checked = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { checked = new Set(); }
+  try { history = JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch (e) { history = []; }
+}
+load();
+const saveHist = () => { try { localStorage.setItem(HKEY, JSON.stringify(history)); } catch (e) {} };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...checked])); } catch (e) {} };
 
 const $ = id => document.getElementById(id);
@@ -145,7 +167,7 @@ $('random').addEventListener('click', () => {
   const left = MAX - checked.size;
   if (left > MAX / 20) { do n = Math.floor(Math.random() * MAX); while (checked.has(n)); }
   else { const free = []; for (let i = 0; i < MAX; i++) if (!checked.has(i)) free.push(i); n = free[Math.floor(Math.random() * free.length)]; }
-  checked.add(n); save();
+  checked.add(n); save(); history.push(n); saveHist();
   if (filter === 'unchecked') { grid.querySelector(`[data-n="${n}"]`)?.remove(); stats(); }
   else { render(); reveal(n); }
   popup(n);
@@ -156,6 +178,43 @@ $('filters').addEventListener('click', e => {
   filter = b.dataset.f;
   document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('active', x === b));
   render();
+});
+
+// History
+function showHist() {
+  const l = $('histlist');
+  l.innerHTML = history.length
+    ? history.map((n, i) => `<li><span>#${i + 1}</span><b>${pad(n)}</b></li>`).join('')
+    : '<li><span>No random numbers yet</span></li>';
+  $('hist').classList.add('show');
+  l.scrollTop = l.scrollHeight;
+}
+$('histbtn').addEventListener('click', showHist);
+$('histclose').addEventListener('click', () => $('hist').classList.remove('show'));
+$('hist').addEventListener('click', e => { if (e.target === $('hist')) $('hist').classList.remove('show'); });
+
+// Download / import all localStorage data (never clears storage; import only overwrites keys in the file)
+$('download').addEventListener('click', () => {
+  const data = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); data[k] = localStorage.getItem(k); } } catch (e) {}
+  const blob = new Blob([JSON.stringify({ app: 'number-counter', version: 1, data }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `number-counter-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('import').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const obj = JSON.parse(await f.text());
+    if (obj.app !== 'number-counter' || !obj.data || typeof obj.data !== 'object') throw 0;
+    if (!confirm('Import this file? It will replace the current checked numbers and history.')) return;
+    for (const [k, v] of Object.entries(obj.data)) if (typeof v === 'string') localStorage.setItem(k, v);
+    load(); render();
+  } catch (err) { alert('That file is not a valid Number Counter export.'); }
 });
 
 render();
